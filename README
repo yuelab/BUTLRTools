@@ -1,0 +1,1 @@
+Convert Hi-C interaction matices into the Binary Upper TranguLar MatRix (BUTLR) format. The file could then be used to view Hi-C heatmap and virtual 4C plot with the 3D Genome Browser (http://3dgenome.org).
