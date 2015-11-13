@@ -188,18 +188,58 @@ foreach my $chr (@sorted_chr_list)
         $head_size += length($chr) + 1;
         print $OUTFILE pack("L",  $genome_size{$chr});
         $head_size += 4;
-        $intrachrom_to_row_header_location{$chr} = $head_size;
-        print $OUTFILE pack("Q",  0);
+        $intrachrom_to_row_header_location{ $chr } = $head_size;
+        print $OUTFILE pack("Q",  0); #fill this later
         $head_size += 8;
     }
 }
 
+my %interchrom_to_row_header_location;
+my %interchrom_to_row_body_location;
+if ( $interchrom_flag )
+{
+my $interchrom_loctn = $head_size;
+
+foreach my $c1 (0 .. $#sorted_chr_list)
+{
+    foreach my $c2 ($c1 .. $#sorted_chr_list)
+    {
+        if ( $sorted_chr_list[$c1] eq $sorted_chr_list[$c2] ) { next; }
+        if ( exists $matrix_name{$sorted_chr_list[$c1] . "\t" . $sorted_chr_list[$c2]} || exists $matrix_name{$sorted_chr_list[$c2] . "\t" . $sorted_chr_list[$c1]} )
+        {
+            my $fname = '';
+            if ( exists  $matrix_name{$sorted_chr_list[$c2] . "\t" . $sorted_chr_list[$c1]} )
+            {
+                $fname = $matrix_name{$sorted_chr_list[$c2] . "\t" . $sorted_chr_list[$c1]}
+            }
+            my $key = $sorted_chr_list[$c1] . "\t" . $sorted_chr_list[$c2];
+            if ( exists  $matrix_name{ $key } )
+            {
+                $fname = $matrix_name{ $key };
+            }
+
+            if ( ! -e $fname ) {unlink $output_filename; die "$! ($fname)\n"}
+
+            print $OUTFILE pack("C*", convert_from_char_to_bin($key));
+            $head_size += length($key) + 1;
+            $interchrom_to_row_header_location{ $key } = $head_size;
+            print $OUTFILE pack("Q",  0); #fill this later
+            $head_size += 8;
+        }
+    }
+}
+
+seek($OUTFILE, 24, 0);
+print $OUTFILE pack("L", $interchrom_loctn);
+}
+
+#Write the header size
 seek ($OUTFILE, 0, 0);
 print $OUTFILE pack("L", $head_size);
 seek ($OUTFILE, 0, 2);
 
 my $file_location = $head_size;
-#
+
 foreach my $chr (@sorted_chr_list)
 {
     if (exists $matrix_name{$chr})
@@ -251,10 +291,6 @@ foreach my $chr (@sorted_chr_list)
                             }
                         }
                     }
-                    #else
-                #    {
-                        #push @row_locations, 0;
-                #    }
                 }
                 else { unlink $output_filename; die "Error: Incongruent matrix sizes\n"; }
 
@@ -279,10 +315,134 @@ foreach my $chr (@sorted_chr_list)
 
 foreach my $chr (@sorted_chr_list)
 {
-    if (exists $matrix_name{$chr})
+    if (exists $matrix_name{$chr} && -e $matrix_name{$chr})
     {
         seek ($OUTFILE, $intrachrom_to_row_header_location{ $chr }, 0);
         print $OUTFILE pack("Q", $intrachrom_to_row_body_location{ $chr });
+    }
+}
+
+seek ($OUTFILE, 0, 2);
+
+if ( $interchrom_flag )
+{
+foreach my $c1 (0 .. $#sorted_chr_list)
+{
+    foreach my $c2 ($c1 .. $#sorted_chr_list)
+    {
+        if ( $sorted_chr_list[$c1] eq $sorted_chr_list[$c2] ) { next; }
+        if ( exists $matrix_name{$sorted_chr_list[$c1] . "\t" . $sorted_chr_list[$c2]} || exists $matrix_name{$sorted_chr_list[$c2] . "\t" . $sorted_chr_list[$c1]} )
+        {
+            my $fname = '';
+            if ( exists  $matrix_name{$sorted_chr_list[$c2] . "\t" . $sorted_chr_list[$c1]} )
+            {
+                $fname = $matrix_name{$sorted_chr_list[$c2] . "\t" . $sorted_chr_list[$c1]}
+            }
+            my $key = $sorted_chr_list[$c1] . "\t" . $sorted_chr_list[$c2];
+            if ( exists  $matrix_name{ $key } )
+            {
+                $fname = $matrix_name{ $key };
+            }
+
+            if ($fname)
+            {
+                my $chrom_a_bin = int($genome_size{ $sorted_chr_list[$c1] } / $res) + 1;
+                my $chrom_b_bin = int($genome_size{ $sorted_chr_list[$c2] } / $res) + 1;
+                my $total_bin   = $chrom_a_bin * $chrom_b_bin;
+
+                print STDERR "Processing interchromosomal $sorted_chr_list[$c1] ($chrom_a_bin rows) x $sorted_chr_list[$c2] ($chrom_b_bin columns) [total: $total_bin bins] with $fname\n";
+
+                my @row_locations;
+                if (open my $MXFILE, "<", $fname)
+                {
+                    my $n = 0;
+                    my $i = 0; #row number
+                    while (my $line = <$MXFILE>)
+                    {
+                        $n += 1;
+                        if ($n < $header_end_n)
+                        {
+                            next;
+                        }
+                        if ($i >= $chrom_a_bin)
+                        {
+                            warn "Larger matrix ($i >= $chrom_a_bin) than expected. Please make sure that the assembly genome file, matrix file and resolution are correct. Disregarding the excess rows.";
+                            last;
+                        }
+
+                        chomp $line;
+                        $line = trim($line);
+                        my @recs = split(/\t/, $line);
+                        my $rec_size = scalar(@recs);
+
+                        if ( ($rec_size >= $chrom_b_bin) )
+                        {
+
+                            @recs = splice(@recs, $rec_size - $chrom_b_bin, $chrom_b_bin);
+                            #record row location
+                            push @row_locations, $file_location;
+                            #record col location
+                            if ( any { $_ != $mcv } @recs )
+                            {
+                                for (my $j = 0; $j < $chrom_b_bin; $j++)
+                                {
+                                    if ( $recs[$j] != $mcv )
+                                    {
+                                        print $OUTFILE pack("L", $j);
+                                        $file_location += 4;
+                                        print $OUTFILE pack("f<", $recs[$j]);
+                                        $file_location += 4;
+                                    }
+                                }
+                            }
+
+                        }
+                        else { unlink $output_filename; die "Error: Incongruent matrix sizes\n"; }
+
+                        $i += 1;
+                    }
+                    close $MXFILE;
+                    push @row_locations, $file_location;
+                } #if (open my $MXFILE, "<", $fname)
+                else {unlink $output_filename; die "$! ($fname)\n"}
+                if (scalar(@row_locations) < $chrom_a_bin)
+                {
+                    unlink $output_filename; die "Error: Incongruent matrix sizes\n";
+                }
+
+                $interchrom_to_row_body_location{ $key } = $file_location;
+                for (my $row = 0; $row < scalar( @row_locations ); $row++)
+                {
+                    print $OUTFILE pack("Q", $row_locations[$row]);
+                    $file_location += 8;
+                }
+            }
+        }
+    } #foreach my $c2 ($c1 .. $#sorted_chr_list)
+} #foreach my $c1 (0 .. $#sorted_chr_list)
+} #if ( $interchrom_flag )
+
+
+foreach my $c1 (0 .. $#sorted_chr_list)
+{
+    foreach my $c2 ($c1 .. $#sorted_chr_list)
+    {
+        if ( $sorted_chr_list[$c1] eq $sorted_chr_list[$c2] ) { next; }
+        if ( exists $matrix_name{$sorted_chr_list[$c1] . "\t" . $sorted_chr_list[$c2]} || exists $matrix_name{$sorted_chr_list[$c2] . "\t" . $sorted_chr_list[$c1]} )
+        {
+            my $fname = '';
+            if ( exists  $matrix_name{$sorted_chr_list[$c2] . "\t" . $sorted_chr_list[$c1]} )
+            {
+                $fname = $matrix_name{$sorted_chr_list[$c2] . "\t" . $sorted_chr_list[$c1]}
+            }
+            my $key = $sorted_chr_list[$c1] . "\t" . $sorted_chr_list[$c2];
+            if ( exists  $matrix_name{ $key } && -e $matrix_name{ $key } )
+            {
+                $fname = $matrix_name{ $key };
+                seek ($OUTFILE, $interchrom_to_row_header_location{ $key }, 0);
+                print $OUTFILE pack("Q", $interchrom_to_row_body_location{ $key });
+            }
+        }
     }
 }
 
