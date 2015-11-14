@@ -215,7 +215,6 @@ sub get_values
         }
         if ($l > $col_endin) { last; }
     }
-
     my @list;
     for (my $i = $col_start; $i <= $col_endin; $i++)
     {
@@ -229,16 +228,17 @@ if ( ! -e $butlr_filename ) { die "$! ($butlr_filename)\n" };
 open(my $butlr_fp, $butlr_filename) or die "Error opening ($butlr_filename)\n";
 
 my $header_size = unpack('L', read_bytes($butlr_fp, $DATA_BYTE_SIZE));
-#print STDERR " Size of header: " . $header_size . "\n";
 
 my @clist = unpack('C*', read_bytes($butlr_fp, 16));
 print STDERR " BUTLR Converter Version: " . convert_from_bin_to_char(\@clist) . "\n";
 
+print STDERR " Size of header: " . $header_size . "\n";
+
 my $intra_locn = unpack('L', read_bytes($butlr_fp, $DATA_BYTE_SIZE));
-#print STDERR " Location of chr information: "  . $intra_locn . "\n";
+print STDERR " Location of chr information: "  . $intra_locn . "\n";
 
 my $inter_locn = unpack('L', read_bytes($butlr_fp, $DATA_BYTE_SIZE));
-#print STDERR " Location of interchromosomal: " . $inter_locn . "\n";
+print STDERR " Location of interchromosomal: " . $inter_locn . "\n";
 
 my $assembly = read_chars( $butlr_fp );
 print STDERR " Assembly: " . $assembly . "\n";
@@ -266,6 +266,18 @@ while ($curr_byte < $intra_end)
     $chr_to_locn{ $chr } = $location;
     $curr_byte += length($chr) + 1 + $DATA_BYTE_SIZE + $LOCN_BYTE_SIZE;
     print STDERR "\t$chr\t$size\t$location\n"
+}
+
+if ( $inter_locn )
+{
+    print STDERR "chromosome/scaffold1\tchromosome/scaffold2\tlocation\n";
+while ( $curr_byte < $header_size )
+{
+    my $key  = read_chars( $butlr_fp );
+    my $location = unpack('Q', read_bytes($butlr_fp, $LOCN_BYTE_SIZE));
+    $curr_byte += length($key) + 1 + $LOCN_BYTE_SIZE;
+    print STDERR "\t$key\t$location\n"
+}
 }
 
 my $chrom1_rowcol_num;
@@ -351,8 +363,20 @@ if (defined($bin_str))
 
 if ($chrom1_name)
 {
-    print STDERR " Location1: $chrom1_name, $chrom1_start_bin, $chrom1_endin_bin\n";
-    print STDERR " Location2: $chrom2_name, $chrom2_start_bin, $chrom2_endin_bin\n";
+    print STDERR " Location1: $chrom1_name : $chrom1_start_bin, $chrom1_endin_bin\n";
+}
+if ($chrom1_name)
+{
+    print STDERR " Location2: $chrom2_name : $chrom2_start_bin, $chrom2_endin_bin\n";
+}
+
+if ( ! $inter_locn )
+{
+    if ( $chrom1_name && $chrom1_name ne $chrom2_name )
+    {
+        print STDERR "The file does not encode interchromosomal matrices.\n\n";
+        exit 1;
+    }
 }
 
 #Sanity checks
@@ -382,27 +406,22 @@ foreach my $chrom1 ( @chrom1_list )
         for (my $i = $chrom1_start_bin; $i <= $chrom1_endin_bin; $i++)
         {
             my @row_list;
-            for (my $j = $chrom2_start_bin; $j <= $chrom2_endin_bin; $j++)
+            #intrachromosomal
+            for (my $j = $chrom2_start_bin; $j <= $i; $j++)
             {
-                #intrachromosomal
-                if ($j < $i)
-                {
-                    push @row_list, get_values( $butlr_fp, $chr_to_locn{ $chrom1 }, $j, $i, $i );
-                }
-                else
-                {
-                    last;
-                }
+                push @row_list, get_values( $butlr_fp, $chr_to_locn{ $chrom1 }, $j, $i, $i );
             }
             if ($chrom2_endin_bin >= $i)
             {
                 push @row_list, get_values( $butlr_fp, $chr_to_locn{ $chrom1 }, $i, $i, $chrom2_endin_bin );
             }
-
             #Print
             for (my $j = $chrom2_start_bin; $j <= $chrom2_endin_bin; $j++)
             {
-                print $row_list[$j];
+                if (defined( $row_list[$j] ))
+                {
+                    print $row_list[$j];
+                }
                 if ($j < $chrom2_endin_bin)
                 {
                     print "\t";
