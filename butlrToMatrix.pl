@@ -16,7 +16,7 @@ use lib abs_path("$FindBin::Bin/.");
 #Required modules
 use Getopt::Long qw(GetOptions);
 use File::Basename;
-use List::Util qw(any);
+use List::Util qw(any first);
 use Butlr;
 
 my $version = "1.2";
@@ -268,6 +268,7 @@ while ($curr_byte < $intra_end)
     print STDERR "\t$chr\t$size\t$location\n"
 }
 
+
 if ( $inter_locn )
 {
     print STDERR "chromosome/scaffold1\tchromosome/scaffold2\tlocation\n";
@@ -276,7 +277,7 @@ while ( $curr_byte < $header_size )
     my $key  = read_chars( $butlr_fp );
     my $location = unpack('Q', read_bytes($butlr_fp, $LOCN_BYTE_SIZE));
     $curr_byte += length($key) + 1 + $LOCN_BYTE_SIZE;
-    print STDERR "\t$key\t$location\n"
+    print STDERR "\t$key\t$location\n";
 }
 }
 
@@ -365,12 +366,18 @@ if ($chrom1_name)
 {
     print STDERR " Location1: $chrom1_name : $chrom1_start_bin, $chrom1_endin_bin\n";
 }
-if ($chrom1_name)
+if ($chrom2_name)
 {
     print STDERR " Location2: $chrom2_name : $chrom2_start_bin, $chrom2_endin_bin\n";
 }
 
-if ( ! $inter_locn )
+my $inter_chrom_jump = 0;
+if ( $inter_locn )
+{
+    my $chrom1_index = first { $sorted_chr_list[$_] eq $chrom1_name } 0 .. $#sorted_chr_list;
+    my $chrom2_index = first { $sorted_chr_list[$_] eq $chrom2_name } 0 .. $#sorted_chr_list;
+}
+else
 {
     if ( $chrom1_name && $chrom1_name ne $chrom2_name )
     {
