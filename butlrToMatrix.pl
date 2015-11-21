@@ -20,16 +20,15 @@ use List::Util qw(any first);
 use Butlr;
 
 my $version = "1.2";
-
+my $STDOUT  = "stdout";
 my $butlr_filename;
 my $output_prefix;
-my $output_filename;
 my $location_str;
 my $bin_str;
+my $usr_req_tp_flag;
 
 my $chrom1_name  = "";
 my $chrom2_name  = "";
-
 
 my $UNINIT_VALUE     = -0.123456789;
 my $chrom1_start     = $UNINIT_VALUE;
@@ -54,17 +53,18 @@ sub get_use
             "\tExtract the matrix based on the location. Examples: chr1:0-100000 (both row and col of matrix) or\n\t".
             "\tchr1:0-100000,249150621-249250621 (row and col of same chromosome/intrachromosomal) or chr1 (entire chromosome) \n\t".
             "\tor chr1:0-100000,chr2:0-100000 or chr1,chr2 (entire interchromosomal) interaction\n\t".
-            "\t*order matters: first chromosome is the row while second is the column.\n\t".
+            "-t [OPTIONAL]\n\t".
+            "\tThe transpose flag (for interchromosomal matrix). If not provided [default], the chromosome with more bins will always be designated as row (order does not matter); else, the first chromosome will be designated as row.\n\t".
             "-b <bin (= location / resolution), 0-based, use bin instead of absolute position> [OPTIONAL]\n\t".
-            "-o <output prefix> [OPTIONAL]\n\n".
-            "\n\n";
-            #"\tIf neither location or bin is provided, all chromosomes/scaffold are written to the output file\n\n";
+            "-o <output prefix> [OPTIONAL]\n\n" . 
+            "\tIf neither location or bin is provided, all chromosomes/scaffold are written to the respective output files.\n\n";
 }
 
 GetOptions(
     'input|i=s' => \$butlr_filename,
     'location|l=s' => \$location_str,
     'bin|b=s' => \$bin_str,
+    'transpose|t' => \$usr_req_tp_flag,
     'output|o=s' => \$output_prefix,
 ) or die get_use();
 
@@ -177,6 +177,7 @@ sub read_chars
 #   3) Row
 #   4) Column Start
 #   5) Column End
+#   6) Flag: true: interchromosomal; false: intrachromosomal
 #Subroutine:
 #   Read butlr file to extract matrix
 #Output:
@@ -188,13 +189,17 @@ sub get_values
     my $row_offset= $_[2]; #i
     my $col_start = $_[3]; #j
     my $col_endin = $_[4];
+    my $inter_flag= $_[5];
 
-    if ($row_offset > $col_start && $col_start == $col_endin)
+    if (!$inter_flag)
     {
-        my $temp = $col_start;
-        $col_start  = $row_offset;
-        $col_endin  = $row_offset;
-        $row_offset = $col_start;
+        if ($row_offset > $col_start && $col_start == $col_endin)
+        {
+            my $temp = $col_start;
+            $col_start  = $row_offset;
+            $col_endin  = $row_offset;
+            $row_offset = $col_start;
+        }
     }
 
     seek( $butlr_fp, $location + $LOCN_BYTE_SIZE * $row_offset, 0 );
@@ -221,6 +226,7 @@ sub get_values
         if (exists $index_to_value{$i}) { push @list, $index_to_value{$i}; }
         else { push @list, 0.0; }
     }
+
     return @list;
 }
 
@@ -266,19 +272,6 @@ while ($curr_byte < $intra_end)
     $chr_to_locn{ $chr } = $location;
     $curr_byte += length($chr) + 1 + $DATA_BYTE_SIZE + $LOCN_BYTE_SIZE;
     print STDERR "\t$chr\t$size\t$location\n"
-}
-
-
-if ( $inter_locn )
-{
-    print STDERR "chromosome/scaffold1\tchromosome/scaffold2\tlocation\n";
-while ( $curr_byte < $header_size )
-{
-    my $key  = read_chars( $butlr_fp );
-    my $location = unpack('Q', read_bytes($butlr_fp, $LOCN_BYTE_SIZE));
-    $curr_byte += length($key) + 1 + $LOCN_BYTE_SIZE;
-    print STDERR "\t$key\t$location\n";
-}
 }
 
 my $chrom1_rowcol_num;
@@ -362,41 +355,76 @@ if (defined($bin_str))
     if ( $chrom2_endin_bin == $UNINIT_VALUE ) { $chrom2_endin_bin = $chrom2_rowcol_num - 1; }
 }
 
-if ($chrom1_name)
-{
-    print STDERR " Location1: $chrom1_name : $chrom1_start_bin, $chrom1_endin_bin\n";
-}
-if ($chrom2_name)
-{
-    print STDERR " Location2: $chrom2_name : $chrom2_start_bin, $chrom2_endin_bin\n";
-}
-
 my $inter_chrom_jump = 0;
+my %inter_chrom_table;
 if ( $inter_locn )
 {
     my $chrom1_index = first { $sorted_chr_list[$_] eq $chrom1_name } 0 .. $#sorted_chr_list;
     my $chrom2_index = first { $sorted_chr_list[$_] eq $chrom2_name } 0 .. $#sorted_chr_list;
+
+    my $chrom1_exit = 0;
+    my $chrom2_exit = 0;
+    if (!defined($chrom1_index))
+    {
+        $chrom1_exit = 1;
+    }
+    if (!defined($chrom2_index))
+    {
+        $chrom2_exit = 1;
+    }
+
+    print STDERR "chromosome/scaffold1\tchromosome/scaffold2\tlocation\n";
+    while ( $curr_byte < $header_size )
+    {
+        my $key  = read_chars( $butlr_fp );
+        my $location = unpack('Q', read_bytes($butlr_fp, $LOCN_BYTE_SIZE));
+        $inter_chrom_table{$key} = $location;
+        $curr_byte += length($key) + 1 + $LOCN_BYTE_SIZE;
+        print STDERR "\t$key\t$location\n";
+    }
+
+    if ($chrom1_exit && $chrom1_name)
+    {
+        die "$chrom1_name is not encoded by the file";
+    }
+    if ($chrom2_exit && $chrom2_name)
+    {
+        die "$chrom2_name is not encoded by the file";
+    }
+
 }
 else
 {
     if ( $chrom1_name && $chrom1_name ne $chrom2_name )
     {
-        print STDERR "The file does not encode interchromosomal matrices.\n\n";
-        exit 1;
+        die "The file does not encode interchromosomal matrices.\n\n";
     }
 }
 
+if ($chrom1_name)
+{
+    print STDERR " Location1 (binned): $chrom1_name : $chrom1_start_bin, $chrom1_endin_bin\n";
+}
+if ($chrom2_name)
+{
+    print STDERR " Location2 (binned): $chrom2_name : $chrom2_start_bin, $chrom2_endin_bin\n";
+}
+
 #Sanity checks
-if ( $chrom1_start_bin < 0 || $chrom1_endin_bin < 0 || $chrom1_endin_bin < $chrom1_start_bin )
+if ( $chrom1_name && $chrom2_name && ($chrom1_start_bin < 0 || $chrom1_endin_bin < 0 || $chrom1_endin_bin < $chrom1_start_bin ))
 {
     die "The chromosome location/bin information is invalid.\n\n";
 }
 
 my @chrom1_list;
+my @inter_chrom_list;
 my @chrom2_list;
+my $all_flag = 0;
+my %done_list;
 
 if ( !defined($location_str) && !defined($bin_str) )
 {
+    $all_flag = 1;
     @chrom1_list = @sorted_chr_list;
     @chrom2_list = @sorted_chr_list;
 }
@@ -405,42 +433,144 @@ else
     push @chrom1_list, $chrom1_name;
     push @chrom2_list, $chrom2_name;
 }
-
+my $out;
+#Interchromosomal Locations
+if ( $chrom1_name ne $chrom2_name || $all_flag )
+{
 foreach my $chrom1 ( @chrom1_list )
 {
+    my $reverse_flag = 0;
     foreach my $chrom2 ( @chrom2_list )
     {
+        if ( $chrom1 eq $chrom2 ) {next;}
+        if ( $all_flag )
+        {
+            $chrom1_start_bin = 0;
+            $chrom2_start_bin = 0;
+            $chrom1_endin_bin = int( $chr_to_size{ $chrom1 } / $res );
+            $chrom2_endin_bin = int( $chr_to_size{ $chrom2 } / $res );
+        }
+
+        my $inter_chrom_jump = 0;
+        my $key1 = $chrom1 . "\t" . $chrom2;
+        my $key2 = $chrom2 . "\t" . $chrom1;
+
+        if (defined($done_list{ $key1 }) || defined($done_list{ $key2 })) {next;}
+        if ( $inter_chrom_table{ $key1 } )
+        {
+            $inter_chrom_jump = $inter_chrom_table{ $key1 };
+            $done_list{ $key1 } = 1;
+            $done_list{ $key2 } = 1;
+        }
+        else
+        {
+            if ( $inter_chrom_table{ $key2 } )
+            {
+                $inter_chrom_jump = $inter_chrom_table{ $key2 };
+                $reverse_flag = 1;
+                $done_list{ $key1 } = 1;
+                $done_list{ $key2 } = 1;
+            }
+        }
+
+        if ( !$inter_chrom_jump ) { next; }
+
+        my $output_filename = "$output_prefix.$chrom1.$chrom2.matrix";
+        if ($reverse_flag)
+        {
+            if (!$usr_req_tp_flag)
+            {
+                $output_filename = "$output_prefix.$chrom2.$chrom1.matrix";
+                my $temp = $chrom2_start_bin;
+                $chrom2_start_bin = $chrom1_start_bin;
+                $chrom1_start_bin = $temp;
+
+                $temp    = $chrom2_endin_bin;
+                $chrom2_endin_bin = $chrom1_endin_bin;
+                $chrom1_endin_bin = $temp;
+            }
+        }
+
+        if ( lc($output_prefix) ne $STDOUT )
+        {
+            open $out, '>', $output_filename;
+        }
         for (my $i = $chrom1_start_bin; $i <= $chrom1_endin_bin; $i++)
         {
             my @row_list;
-            #intrachromosomal
-            for (my $j = $chrom2_start_bin; $j <= $i; $j++)
-            {
-                push @row_list, get_values( $butlr_fp, $chr_to_locn{ $chrom1 }, $j, $i, $i );
-            }
-            if ($chrom2_endin_bin >= $i)
-            {
-                push @row_list, get_values( $butlr_fp, $chr_to_locn{ $chrom1 }, $i, $i, $chrom2_endin_bin );
-            }
-            #Print
-            for (my $j = $chrom2_start_bin; $j <= $chrom2_endin_bin; $j++)
-            {
-                if (defined( $row_list[$j] ))
-                {
-                    print $row_list[$j];
-                }
-                if ($j < $chrom2_endin_bin)
-                {
-                    print "\t";
-                }
-                else
-                {
-                    print "\n";
-                }
-            }
 
+            if ( $reverse_flag && $usr_req_tp_flag )
+            {
+                for (my $j = $chrom2_start_bin; $j <= $chrom2_endin_bin; $j++)
+                {
+                    push @row_list, get_values( $butlr_fp, $inter_chrom_jump, $j, $i, $i, 1 );
+                }
+            }
+            else
+            {
+                push @row_list, get_values( $butlr_fp, $inter_chrom_jump, $i, $chrom2_start_bin, $chrom2_endin_bin, 1 );
+            }
+            if ( lc($output_prefix) ne $STDOUT )
+            {
+                print $out join( "\t", @row_list ) . "\n";
+            }
+            else
+            {
+                print join( "\t", @row_list ) . "\n";
+            }
+        }
+        if ( lc($output_prefix) ne $STDOUT )
+        {
+            close $out;
         }
     }
+}
+}
+
+#Intrachromosomal Locations
+if ( $chrom1_name eq $chrom2_name || $all_flag )
+{
+foreach my $chrom1 ( @chrom1_list )
+{
+    if ( $all_flag )
+    {
+        $chrom1_start_bin = 0;
+        $chrom2_start_bin = 0;
+        $chrom1_endin_bin = int( $chr_to_size{ $chrom1 } / $res );
+        $chrom2_endin_bin = int( $chr_to_size{ $chrom1 } / $res );
+    }
+
+    if ( lc($output_prefix) ne $STDOUT )
+    {
+        my $output_filename = "$output_prefix.$chrom1.matrix";
+        open $out, '>', $output_filename;
+    }
+    for (my $i = $chrom1_start_bin; $i <= $chrom1_endin_bin; $i++)
+    {
+        my @row_list;
+
+        for (my $j = $chrom2_start_bin; $j < $i; $j++)
+        {
+            push @row_list, get_values( $butlr_fp, $chr_to_locn{ $chrom1 }, $j, $i, $i, 0 );
+        }
+        if ($chrom2_endin_bin >= $i)
+        {
+            push @row_list, get_values( $butlr_fp, $chr_to_locn{ $chrom1 }, $i, $i, $chrom2_endin_bin, 0 );
+        }
+        if ( lc($output_prefix) ne $STDOUT )
+        {
+            print $out join( "\t", @row_list ) . "\n";
+        }
+        else
+        {
+            print join( "\t", @row_list ) . "\n";
+        }
+    }
+    if ( lc($output_prefix) ne $STDOUT )
+    {
+        close $out;
+    }
+}
 }
 
 close $butlr_fp;
