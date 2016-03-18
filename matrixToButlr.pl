@@ -1,8 +1,8 @@
 #! /usr/local/bin/perl -w
 
 #Yanli Wang
-#yanly.wang@gmail.com
-#Version 1.2
+#3dgenome.browser@gmail.com
+#Version 1.2.1
 #Code to convert Hi-C matrix (contact matrices in multiple files) into the Binary Upper TrianguLer MatRix (BUTLR) format
 
 use strict;
@@ -16,7 +16,7 @@ use lib abs_path("$FindBin::Bin/.");
 #Required modules
 use Getopt::Long qw(GetOptions);
 use File::Basename;
-use List::Util qw(any);
+##use List::Util qw(any);
 use Butlr;
 
 my $version = "1.2";
@@ -272,13 +272,15 @@ foreach my $chr (@sorted_chr_list)
                 my @recs = split(/\t/, $line);
                 my $rec_size = scalar(@recs);
 
+                #Make sure that the number of columns in the matrix file >= the calculated # of bin based on chromosome size and resolution
                 if ( ($rec_size >= $total_bin_num) )
                 {
                     @recs = splice(@recs, $rec_size - $total_bin_num, $total_bin_num);
                     #record row location
                     push @row_locations, $file_location;
                     #record col location
-                    if ( any { $_ != $mcv } @recs )
+                    if ( $mcv ~~ @recs )
+                    #if ( any { $_ != $mcv } @recs )
                     {
                         for (my $j = $i; $j < $total_bin_num; $j++)
                         {
@@ -292,7 +294,7 @@ foreach my $chr (@sorted_chr_list)
                         }
                     }
                 }
-                else { unlink $output_filename; die "Error: Incongruent matrix sizes\n"; }
+                else { unlink $output_filename; die "Error: Incongruent matrix sizes (Number of columns in file is $rec_size compared to the calculated bin number of $total_bin_num)\n"; }
 
                 $i += 1;
             }
@@ -300,9 +302,10 @@ foreach my $chr (@sorted_chr_list)
             push @row_locations, $file_location;
         }
         else {unlink $output_filename; die "$! ($matrix_name{$chr})\n";}
-        if (scalar(@row_locations) < $total_bin_num)
+        my $row_number = scalar(@row_locations);
+        if ($row_number < $total_bin_num)
         {
-            unlink $output_filename; die "Error: Incongruent matrix sizes\n";
+            unlink $output_filename; die "Error: Incongruent matrix sizes\n (Number of rows in file is $row_number compared to the calculated bin number of $total_bin_num)\n";
         }
         $intrachrom_to_row_body_location{ $chr } = $file_location;
         for (my $row = 0; $row < scalar( @row_locations ); $row++)
@@ -330,11 +333,12 @@ foreach my $c1 (0 .. $#sorted_chr_list)
 {
     foreach my $c2 ($c1 .. $#sorted_chr_list)
     {
+        #Skip intrachromosomal datasets
         if ( $sorted_chr_list[$c1] eq $sorted_chr_list[$c2] ) { next; }
         if ( exists $matrix_name{$sorted_chr_list[$c1] . "\t" . $sorted_chr_list[$c2]} || exists $matrix_name{$sorted_chr_list[$c2] . "\t" . $sorted_chr_list[$c1]} )
         {
             my $fname = '';
-            if ( exists  $matrix_name{$sorted_chr_list[$c2] . "\t" . $sorted_chr_list[$c1]} )
+            if ( exists $matrix_name{$sorted_chr_list[$c2] . "\t" . $sorted_chr_list[$c1]} )
             {
                 $fname = $matrix_name{$sorted_chr_list[$c2] . "\t" . $sorted_chr_list[$c1]}
             }
@@ -352,6 +356,25 @@ foreach my $c1 (0 .. $#sorted_chr_list)
 
                 print STDERR "Processing interchromosomal $sorted_chr_list[$c1] ($chrom_a_bin rows) x $sorted_chr_list[$c2] ($chrom_b_bin columns) [total: $total_bin bins] with $fname\n";
 
+                #Get the number of rows and columns
+                my $num_of_row = 0;
+                my $num_of_col = 0;
+                open my $MXFILE, "<", $fname or die "$!";
+                while (my $line = <$MXFILE>)
+                {
+                    if ($. == $header_end_n - 1) 
+                    {
+                        my @recs = split(/\t/, $line);
+                        $num_of_col = scalar(@recs);
+                    }
+                }
+                $num_of_row = $.;
+                if ( $num_of_col > $num_of_row )
+                {
+                    print STDERR "Number of cols is greater than number of rows\n";
+                }
+
+                #################################################################################################
                 my @row_locations;
                 if (open my $MXFILE, "<", $fname)
                 {
@@ -382,7 +405,8 @@ foreach my $c1 (0 .. $#sorted_chr_list)
                             #record row location
                             push @row_locations, $file_location;
                             #record col location
-                            if ( any { $_ != $mcv } @recs )
+                            if ( $mcv ~~ @recs )
+                            #if ( any { $_ != $mcv } @recs )
                             {
                                 for (my $j = 0; $j < $chrom_b_bin; $j++)
                                 {
@@ -409,6 +433,7 @@ foreach my $c1 (0 .. $#sorted_chr_list)
                 {
                     unlink $output_filename; die "Error: Incongruent matrix sizes\n";
                 }
+                #################################################################################################
 
                 $interchrom_to_row_body_location{ $key } = $file_location;
                 for (my $row = 0; $row < scalar( @row_locations ); $row++)
