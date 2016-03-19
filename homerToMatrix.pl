@@ -12,6 +12,7 @@ use Getopt::Long qw(GetOptions);
 use File::Basename;
 use List::Util qw(any);
 
+my $version = "1.2.1";
 my $homer_matrix;
 my $genome_size_filename;
 my $output_prefix;
@@ -19,7 +20,8 @@ my $output_prefix;
 #Print the usage when the required parameters are not provided
 sub get_use
 {
-    return "Converts HOMER one-matrix output to separate matrices and list file as inputs to create BUTLR files\n".
+    return "BUTLR conversion tool version $version\n" . 
+    "Converts HOMER one-matrix output to separate matrices and list file as inputs to create BUTLR files\n".
     "Usage: perl $0 <REQUIRED> <OPTIONAL>\n\t".
     "-m <name of homer matrix file> [REQUIRED]\n\t".
     "-g <genome size file/*.chrom.sizes> [REQUIRED]\n\t".
