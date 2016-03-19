@@ -1,7 +1,8 @@
 #! /usr/local/bin/perl -w
 
-#Yanli Wang 
-#yanly.wang@gmail.cpm
+#Yanli Wang
+#3dgenome.browser@gmail.com
+#Version 1.2.1
 #Converts the matrix output from HOMER to separate interchromosomal and intrachromosomal matrix files, as well as a list file
 #Both would serve as input for BUTLR file conversion.
 
