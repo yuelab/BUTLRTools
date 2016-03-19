@@ -17,6 +17,7 @@ use lib abs_path("$FindBin::Bin/.");
 use Getopt::Long qw(GetOptions);
 use File::Basename;
 ##use List::Util qw(any);
+use Scalar::Util qw(looks_like_number);
 use Butlr;
 
 my $version = "1.2";
@@ -264,7 +265,7 @@ foreach my $chr (@sorted_chr_list)
                 }
                 if ($i >= $total_bin_num)
                 {
-                    warn "Larger matrix ($i >= $total_bin_num) than expected. Please make sure that the assembly genome file, matrix file and resolution are correct. Disregarding the excess rows.";
+                    warn "Warning: larger matrix ($i >= $total_bin_num) than expected. Please make sure that the assembly genome file, matrix file and resolution are correct. If any header exists, please specifiy with the -h options. All excess rows toward the end were disregarded.\n";
                     last;
                 }
                 chomp $line;
@@ -273,8 +274,12 @@ foreach my $chr (@sorted_chr_list)
                 my $rec_size = scalar(@recs);
 
                 #Make sure that the number of columns in the matrix file >= the calculated # of bin based on chromosome size and resolution
-                if ( ($rec_size >= $total_bin_num) )
+                if ( $rec_size >= $total_bin_num )
                 {
+                    if ( $rec_size > $total_bin_num )
+                    {
+                        warn "Warning: larger matrix ($rec_size > $total_bin_num) than expected. Please make sure that the assembly genome file, matrix file and resolution are correct. All excess columns at the begining were disregarded.\n";
+                    }
                     @recs = splice(@recs, $rec_size - $total_bin_num, $total_bin_num);
                     #record row location
                     push @row_locations, $file_location;
@@ -286,15 +291,32 @@ foreach my $chr (@sorted_chr_list)
                         {
                             if ( $recs[$j] != $mcv )
                             {
-                                print $OUTFILE pack("L", $j);
+                                my $v = $recs[$j];
+                                if ( looks_like_number($v) )
+                                {
+                                    if (lc $v eq "nan")
+                                    {
+                                        $v = 0.0;
+                                    }
+                                    if (lc $v eq "inf")
+                                    {
+                                        $v = 1.0e38;
+                                    }
+                                }
+                                else
+                                {
+                                    warn "Warning: non-number ($v) detected at row $i, column $j (0-based). It will be intepreted as 0.0.\n";
+                                    $v = 0.0;
+                                }
+                                print $OUTFILE pack("L",  $j);
                                 $file_location += 4;
-                                print $OUTFILE pack("f<", $recs[$j]);
+                                print $OUTFILE pack("f<", $v);
                                 $file_location += 4;
                             }
                         }
                     }
                 }
-                else { unlink $output_filename; die "Error: Incongruent matrix sizes (Number of columns in file is $rec_size compared to the calculated bin number of $total_bin_num)\n"; }
+                else { unlink $output_filename; die "Error: Incongruent matrix sizes - not enough columns at $i (0-based) ($rec_size compared to the calculated bin number of $total_bin_num)\n"; }
 
                 $i += 1;
             }
@@ -305,7 +327,7 @@ foreach my $chr (@sorted_chr_list)
         my $row_number = scalar(@row_locations);
         if ($row_number < $total_bin_num)
         {
-            unlink $output_filename; die "Error: Incongruent matrix sizes\n (Number of rows in file is $row_number compared to the calculated bin number of $total_bin_num)\n";
+            unlink $output_filename; die "Error: Incongruent matrix sizes - not enough rows ($row_number compared to the calculated bin number of $total_bin_num)\n";
         }
         $intrachrom_to_row_body_location{ $chr } = $file_location;
         for (my $row = 0; $row < scalar( @row_locations ); $row++)
@@ -371,7 +393,7 @@ foreach my $c1 (0 .. $#sorted_chr_list)
                 $num_of_row = $.;
                 if ( $num_of_col > $num_of_row )
                 {
-                    print STDERR "Number of cols is greater than number of rows\n";
+                    print STDERR "Error: number of columns is greater than number of rows. Please transpose the matrix and try again.\n";
                 }
 
                 #################################################################################################
@@ -389,7 +411,7 @@ foreach my $c1 (0 .. $#sorted_chr_list)
                         }
                         if ($i >= $chrom_a_bin)
                         {
-                            warn "Larger matrix ($i >= $chrom_a_bin) than expected. Please make sure that the assembly genome file, matrix file and resolution are correct. Disregarding the excess rows.";
+                            warn "Warning: larger matrix ($i >= $chrom_a_bin) than expected. Please make sure that the assembly genome file, matrix file and resolution are correct. If any header exists, please specifiy with the -h options. All excess rows toward the end were disregarded.\n";
                             last;
                         }
 
@@ -398,9 +420,12 @@ foreach my $c1 (0 .. $#sorted_chr_list)
                         my @recs = split(/\t/, $line);
                         my $rec_size = scalar(@recs);
 
-                        if ( ($rec_size >= $chrom_b_bin) )
+                        if ( $rec_size >= $chrom_b_bin )
                         {
-
+                            if ( $rec_size > $chrom_b_bin )
+                            {
+                                warn "Warning: larger matrix ($rec_size > $chrom_b_bin) than expected. Please make sure that the assembly genome file, matrix file and resolution are correct. All excess columns at the begining were disregarded.\n";
+                            }
                             @recs = splice(@recs, $rec_size - $chrom_b_bin, $chrom_b_bin);
                             #record row location
                             push @row_locations, $file_location;
@@ -412,16 +437,34 @@ foreach my $c1 (0 .. $#sorted_chr_list)
                                 {
                                     if ( $recs[$j] != $mcv )
                                     {
-                                        print $OUTFILE pack("L", $j);
+                                        my $v = $recs[$j];
+                                        if ( looks_like_number($v) )
+                                        {
+                                            if (lc $v eq "nan")
+                                            {
+                                                $v = 0.0;
+                                            }
+                                            if (lc $v eq "inf")
+                                            {
+                                                $v = 1.0e38;
+                                            }
+                                        }
+                                        else
+                                        {
+                                            warn "Warning: non-number ($v) detected at row $i, column $j (0-based). It will be intepreted as 0.0.\n";
+                                            $v = 0.0;
+                                        }
+                                        print $OUTFILE pack("L",  $j);
                                         $file_location += 4;
-                                        print $OUTFILE pack("f<", $recs[$j]);
+                                        print $OUTFILE pack("f<", $v);
                                         $file_location += 4;
                                     }
                                 }
                             }
 
                         }
-                        else { unlink $output_filename; die "Error: Incongruent matrix sizes\n"; }
+                        #matches if ( ($rec_size >= $chrom_b_bin) )
+                        else { unlink $output_filename; die "Error: Incongruent matrix sizes - not enough columns at row $i (0-based) ($rec_size compared to the calculated bin number of $chrom_b_bin)\n"; }
 
                         $i += 1;
                     }
@@ -429,9 +472,10 @@ foreach my $c1 (0 .. $#sorted_chr_list)
                     push @row_locations, $file_location;
                 } #if (open my $MXFILE, "<", $fname)
                 else {unlink $output_filename; die "$! ($fname)\n"}
-                if (scalar(@row_locations) < $chrom_a_bin)
+                my $row_number = scalar(@row_locations);
+                if ( $row_number < $chrom_a_bin )
                 {
-                    unlink $output_filename; die "Error: Incongruent matrix sizes\n";
+                    unlink $output_filename; die "Error: Incongruent matrix sizes - not enough rows ($row_number compared to the calculated bin number of $chrom_a_bin)\n";
                 }
                 #################################################################################################
 
