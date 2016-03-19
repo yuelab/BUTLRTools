@@ -21,10 +21,10 @@ my $output_prefix;
 sub get_use
 {
     return "BUTLR conversion tool version $version\n" . 
-    "Converts HOMER one-matrix output to separate matrices and list file as inputs to create BUTLR files\n".
-    "Usage: perl $0 <REQUIRED> <OPTIONAL>\n\t".
-    "-m <name of homer matrix file> [REQUIRED]\n\t".
-    "-g <genome size file/*.chrom.sizes> [REQUIRED]\n\t".
+    "Converts HOMER one-matrix output to separate matrices and list file as inputs to create BUTLR files\n\n".
+    "Usage: perl $0 <REQUIRED> <OPTIONAL>\n\n\t".
+    "-m <name of homer matrix file> [REQUIRED]\n\n\t".
+    "-g <genome size file/*.chrom.sizes> [REQUIRED]\n\n\t".
     "-o <output file prefix> [OPTIONAL]\n";
 }
 
