@@ -19,8 +19,8 @@ use File::Basename;
 ##use List::Util qw(any);
 use Scalar::Util qw(looks_like_number);
 use Butlr;
-
-my $version = "1.2";
+no if ($] >= 5.018), 'warnings' => 'experimental';
+my $version = "1.2.1";
 my $assembly;
 my $genome_size_filename;
 my $matrix_list_filename;
@@ -32,18 +32,18 @@ my $header_end_n = 1;
 sub get_use()
 {
     return  "BUTLR conversion tool version $version\n" .
-            "Usage: perl $0 <REQUIRED> <OPTIONAL>\n\t" . 
+            "Usage: perl $0 <REQUIRED> <OPTIONAL>\n\n\t" . 
             "-a <assembly of data> [REQUIRED]\n\t" .
             "\tPlease use assembly names recognized by UCSC Genome Browser.\n\t" . 
-            "\tIf using new assembly, it is recommended to construct an assembly hub on UCSC and specify that URL, rather than default genome tracks.\n\t" .
+            "\tIf using new assembly, it is recommended to construct an assembly hub on UCSC and specify that URL, rather than default genome tracks.\n\n\t" .
             "-g <genome size file> [REQUIRED]\n\t" .
-            "\tA file with chromosome/scaffold names and their sizes, delimited by tab, one per line, like the *.chrom.sizes files.\n\t" .
+            "\tA file with chromosome/scaffold names and their sizes, delimited by tab, one per line, like the *.chrom.sizes files.\n\n\t" .
             "-m <file containing list of chr *tab* matrix file location> [REQUIRED]\n\t" . 
             "\tA file with chromosome/scaffold names and their corresponding matrix location/name, delimited by tab, one per line.\n\t" .
             "\tIf interchromosomal interactions are included, then the file could, for each line, list chrom1, chrom2 and file, deliminated by tab.\n\t" .
-            "\tPlease make sure that the chromosome/scaffold here matches those from the genome size file.\n\t" . 
-            "-r <resolution: bp as default, could enter Xk or Xm to specify resolutions in X kb or mb> [REQUIRED]\n\t" . 
-            "-h <row number when header ends/matrix begins, 1-based; default: 1 (no header)> [OPTIONAL]\n\t" . 
+            "\tPlease make sure that the chromosome/scaffold here matches those from the genome size file.\n\n\t" . 
+            "-r <resolution: bp as default, could enter Xk or Xm to specify resolutions in X kb or mb> [REQUIRED]\n\n\t" . 
+            "-h <row number when header ends/matrix begins, 1-based; default: 1 (no header)> [OPTIONAL]\n\n\t" . 
             "-o <output butlr file> [OPTIONAL]\n";
 }
 
