@@ -2,7 +2,7 @@
 
 #Yanli Wang
 #3dgenome.browser@gmail.com
-#Version 1.2.1
+#Version 1.2.2
 #Converts the matrix output from HOMER to separate interchromosomal and intrachromosomal matrix files, as well as a list file
 #Both would serve as input for BUTLR file conversion.
 
@@ -10,9 +10,10 @@ use strict;
 use warnings;
 use Getopt::Long qw(GetOptions);
 use File::Basename;
-use List::Util qw(any);
 
-my $version = "1.2.1";
+use constant COL_START_INDEX => 2;
+
+my $version = "1.2.2";
 my $homer_matrix;
 my $genome_size_filename;
 my $output_prefix;
@@ -25,7 +26,7 @@ sub get_use
     "Usage: perl $0 <REQUIRED> <OPTIONAL>\n\n\t".
     "-m <name of homer matrix file> [REQUIRED]\n\n\t".
     "-g <genome size file/*.chrom.sizes> [REQUIRED]\n\n\t".
-    "-o <output file prefix> [OPTIONAL]\n";
+    "-o <output file prefix> [OPTIONAL]\n\n\n";
 }
 
 #Returns true if chrom1 is prioritized over chrom2 (in order to reduce redundancy); else if otherwise
@@ -40,6 +41,11 @@ sub is_chrom1_ahead
     my $chrom1 = $_[1];
     my $chrom2 = $_[2];
 
+    if ( $chrom1 eq $chrom2 )
+    {
+        return 0;
+    }
+
     if ( $genome_size{$chrom1} > $genome_size{$chrom2} )
     {
         return 1;
@@ -47,7 +53,7 @@ sub is_chrom1_ahead
 
     if ( $genome_size{$chrom1} == $genome_size{$chrom2} )
     {
-        if ( ($chrom1 cmp $chrom2) <= 0)
+        if ( ($chrom1 cmp $chrom2) < 0)
         {
             return 1;
         }
@@ -81,28 +87,43 @@ close(FILE);
 if ( ! -e $homer_matrix) {die "$! ($homer_matrix)\n"};
 open(FILE, $homer_matrix) or die("Error opening ($homer_matrix)\n");
 
-my $start_col_index = 2;
 my $prev_chrom1 = '';
 my @col_title = ();
 my $header_flag = 1;
 my $new_row_flag = 0;
 
 my ($basename, $dir, $ext) = fileparse($homer_matrix, qr/\.[^.]*/);
-if (not defined $output_prefix)
+
+my $user_input_name_flag = 1;
+if ( not defined $output_prefix )
 {
-    $output_prefix = "$dir$basename";
+    $user_input_name_flag = 0;   
+}
+else
+{
+    if ( -d $output_prefix )
+    {
+        $user_input_name_flag = 0;
+    }
 }
 
-open LISTFILE, ">$output_prefix.list" or die;
-
+my $list_filename;
+if ( !$user_input_name_flag )
+{
+    $list_filename = "$dir/matrix.list";
+}
+else
+{
+    $list_filename = "$output_prefix.list";
+}
+open LISTFILE, ">$list_filename" or die;
 
 #With chrom1 as the name of each chromosome listed vertically in column 1 and chrom2 as the name of each chromosome
 #listed horizontally in row 1. 
 #Exact the matrix when the chromosome name changes, indicating the end of each interchromosomal/intrachromosomal 
 #chromosomes
 #To avoid redundancy, i.e. chr1 x chr2 and chr2 x chr1 store the same information, each row will always be the more
-#"important" chromosome (defined here as the one with greater size). Therefore the length of each matrix file (>wc -l matrix_file)
-#will always be greater or equal to the its width (>awk '{print NF}' matrix_file)
+#From version 1.2.2, resulting matrices have # columns ( awk -F "\t" {print NF} [matrix] | uniq ) >= # rows ( wc -l [matrix] ) instead of the other way around.
 while (my $line = <FILE>)
 {
     chomp $line;
@@ -130,16 +151,24 @@ while (my $line = <FILE>)
 
     my $new_col_flag = 0;
     my $prev_chrom2  = '';
-    my $prev_index   = $start_col_index;
+    my $prev_index   = COL_START_INDEX;
     my $curr_index   = 0;
 
     #Traverse each column
-    for my $i ($start_col_index .. $#recs) 
+    for my $i (COL_START_INDEX .. $#recs) 
     {
         my $chrom2 = substr( $col_title[$i], 0, rindex($col_title[$i], "-") );
 
+        my $output_matrix_filename;
         #Note the two chromosome/scaffold names here and tentatively determine the output filename
-        my $output_matrix_filename = "$output_prefix.$chrom1.$chrom2.matrix";
+        if ( !$user_input_name_flag )
+        {
+            $output_matrix_filename = "$dir$chrom1.$chrom2.matrix";
+        }
+        else
+        {
+            $output_matrix_filename = "$output_prefix.$chrom1.$chrom2.matrix";
+        }
 
         if ( $prev_chrom2 ne $chrom2 )
         {
@@ -148,16 +177,23 @@ while (my $line = <FILE>)
 
             if ($prev_chrom2 ne '')
             {
-                $output_matrix_filename = "$output_prefix.$chrom1.$prev_chrom2.matrix";
+                if ( !$user_input_name_flag )
+                {
+                    $output_matrix_filename = "$dir$chrom1.$prev_chrom2.matrix";
+                }
+                else
+                {
+                    $output_matrix_filename = "$output_prefix.$chrom1.$prev_chrom2.matrix";
+                }
             }
 
-            if ( $new_row_flag && exists($genome_size{$prev_chrom2}) && is_chrom1_ahead(\%genome_size, $chrom1, $prev_chrom2) )
+            if ( $new_row_flag && exists($genome_size{$prev_chrom2}) && !is_chrom1_ahead(\%genome_size, $chrom1, $prev_chrom2) )
             {
                 open MATXFILE, ">$output_matrix_filename" or die;
                 close MATXFILE;
             }
 
-            if ($prev_index < $curr_index && exists($genome_size{$prev_chrom2}) && is_chrom1_ahead(\%genome_size, $chrom1, $prev_chrom2) )
+            if ($prev_index < $curr_index && exists($genome_size{$prev_chrom2}) && !is_chrom1_ahead(\%genome_size, $chrom1, $prev_chrom2) )
             {
                 open MATXFILE, ">>$output_matrix_filename" or die;
                 print MATXFILE join( "\t", @recs[$prev_index .. $curr_index-1] ) . "\n";
@@ -171,17 +207,26 @@ while (my $line = <FILE>)
         {
             $new_col_flag = 0;
 
-            if ( exists($genome_size{$chrom2}) && is_chrom1_ahead(\%genome_size, $chrom1, $chrom2) )
+            if ( exists($genome_size{$chrom2}) && !is_chrom1_ahead(\%genome_size, $chrom1, $chrom2) )
             {
-                print LISTFILE $chrom1 . "\t" . $chrom2 . "\t" . "$output_prefix.$chrom1.$chrom2.matrix" . "\n";
+                print LISTFILE $chrom1 . "\t" . $chrom2 . "\t" . "$output_matrix_filename" . "\n";
             }
         }
     }
 
     #Print the matrix when end of the matrix is denoted with column/file end, instead of chromosome name change.
-    if ( exists($genome_size{$prev_chrom2}) && is_chrom1_ahead(\%genome_size, $chrom1, $prev_chrom2) )
+    if ( exists($genome_size{$prev_chrom2}) && !is_chrom1_ahead(\%genome_size, $chrom1, $prev_chrom2) )
     {
-        my $output_matrix_filename = "$output_prefix.$chrom1.$prev_chrom2.matrix";
+        my $output_matrix_filename;
+        if ( !$user_input_name_flag )
+        {
+            $output_matrix_filename = "$dir$chrom1.$prev_chrom2.matrix";
+        }
+        else
+        {
+            $output_matrix_filename = "$output_prefix.$chrom1.$prev_chrom2.matrix";
+        }
+
         if ( $new_row_flag )
         {
             open MATXFILE, ">$output_matrix_filename" or die;
